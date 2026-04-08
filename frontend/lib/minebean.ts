@@ -163,10 +163,10 @@ const HISTORY_LOOKBACK = 3_000n;
 async function _fetchDashboardData(): Promise<DashboardData> {
   // Note: publicnode blocks getLogs from Vercel IPs; Alchemy demo key is rate-limited
   // For now, return basic on-chain data only. Full analytics requires real Alchemy key.
-  const [currentRound, beanSupply, currentRoundData] = await Promise.all([
-    getCurrentRound(),
+  const currentRound = await getCurrentRound();
+  const [beanSupply, currentRoundData] = await Promise.all([
     getBeanSupply(),
-    getRoundData(getCurrentRound().then(Number)).catch(() => null),
+    getRoundData(currentRound).catch(() => null),
   ]);
 
   const settledLogs: any[] = [];
