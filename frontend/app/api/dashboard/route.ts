@@ -1,11 +1,10 @@
-export const maxDuration = 30;
+export const maxDuration = 10;
 
 import { NextRequest } from "next/server";
 import { createPublicClient, http } from "viem";
 import { base } from "viem/chains";
 import { BEAN_SCOPE_ACCESS, BEAN_SCOPE_ACCESS_ABI } from "@/lib/contracts";
 import { ALCHEMY_RPC, PUBLIC_RPC } from "@/lib/config";
-import { fetchDashboardData } from "@/lib/minebean";
 import { isSuperAdmin } from "@/lib/whitelist";
 
 const client = createPublicClient({
@@ -21,7 +20,11 @@ export async function GET(request: NextRequest) {
   }
 
   // Superadmins bypass paywall
-  if (!isSuperAdmin(wallet) && BEAN_SCOPE_ACCESS) {
+  if (isSuperAdmin(wallet)) {
+    return Response.json({ ok: true });
+  }
+
+  if (BEAN_SCOPE_ACCESS) {
     try {
       const hasAccess = await client.readContract({
         address: BEAN_SCOPE_ACCESS,
@@ -37,17 +40,9 @@ export async function GET(request: NextRequest) {
         });
       }
     } catch {
-      // Contract not deployed or read failed — allow access during dev
+      // Contract read failed — allow access
     }
   }
 
-  try {
-    const data = await fetchDashboardData();
-    return Response.json(data);
-  } catch (e) {
-    return Response.json(
-      { error: "fetch_failed", message: String(e) },
-      { status: 500 }
-    );
-  }
+  return Response.json({ ok: true });
 }

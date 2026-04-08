@@ -22,15 +22,25 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!address) return;
     setLoading(true);
+    // Step 1: check access
     fetch(`/api/dashboard?wallet=${address}`)
       .then((r) => r.json())
-      .then((d) => {
+      .then(async (d) => {
         if (d.error === "no_access") {
           setError("no_access");
-        } else if (d.error) {
+          return;
+        }
+        if (d.error) {
           setError(d.error);
+          return;
+        }
+        // Step 2: fetch analytics from ISR-cached endpoint
+        const res = await fetch("/api/analytics");
+        const analytics = await res.json();
+        if (analytics.error) {
+          setError(analytics.error);
         } else {
-          setData(d);
+          setData(analytics);
           setError(null);
         }
       })
