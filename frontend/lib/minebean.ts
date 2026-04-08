@@ -89,8 +89,8 @@ export async function fetchDashboardData(): Promise<DashboardData> {
   const currentRound = await getCurrentRound();
   const beanSupply = await getBeanSupply();
 
-  // Fetch last 50 settled rounds for analytics
-  const roundCount = Math.min(currentRound, 50);
+  // Fetch last 20 settled rounds for analytics
+  const roundCount = Math.min(currentRound, 20);
   const startRound = Math.max(1, currentRound - roundCount + 1);
 
   const roundPromises: Promise<RoundData>[] = [];
@@ -130,7 +130,7 @@ export async function fetchDashboardData(): Promise<DashboardData> {
           { name: "totalAmount", type: "uint256", indexed: false },
         ],
       },
-      fromBlock: BigInt(Math.max(0, Number(await client.getBlockNumber()) - 2000)),
+      fromBlock: BigInt(Math.max(0, Number(await client.getBlockNumber()) - 500)),
     });
 
     for (const log of logs) {
@@ -184,9 +184,9 @@ export async function fetchFreeStats(): Promise<FreeStatsData> {
   const recentAll = await Promise.all(recentPromises);
   const recentSettled = recentAll.filter((r) => r.settled).slice(0, 3);
 
-  // Heatmap from last 50 settled rounds
+  // Heatmap from last 20 settled rounds
   const heatmapPromises: Promise<RoundData>[] = [];
-  for (let i = currentRound; i >= Math.max(1, currentRound - 49); i--) {
+  for (let i = currentRound; i >= Math.max(1, currentRound - 19); i--) {
     heatmapPromises.push(getRoundData(i));
   }
   const allRounds = await Promise.all(heatmapPromises);
