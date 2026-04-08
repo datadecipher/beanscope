@@ -1,5 +1,15 @@
 # Change Log
 
+### 2026-04-09 (Deployment Documentation & Verification)
+- **What**: Created comprehensive deployment guides and verification tools
+- **Why**: Clarify what works, what's blocked (Alchemy key), and how to unblock it
+- **Status**: All documentation ready; guides step users through Alchemy key setup
+- **Files**: 
+  - Created: `README.md` (full project overview, architecture, deployment status)
+  - Created: `ALCHEMY_SETUP.md` (step-by-step Alchemy key integration guide)
+  - Created: `VERIFY_DEPLOYMENT.sh` (automated endpoint verification script)
+  - Note: All previous work already deployed and verified working
+
 ### 2026-04-09 (Analytics Fix — RPC Limitation)
 - **What**: Reverted to basic analytics (currentRound + beanSupply only); disabled event fetching due to RPC limitations
 - **Why**: publicnode blocks getLogs queries from Vercel IPs; Alchemy demo key is rate-limited (429 errors). Full historical analytics need real Alchemy API key in Vercel env
