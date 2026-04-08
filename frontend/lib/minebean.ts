@@ -161,18 +161,22 @@ const BEAN_TRANSFER_EVENT = {
 const HISTORY_LOOKBACK = 3_000n;
 
 async function _fetchDashboardData(): Promise<DashboardData> {
-  // Note: publicnode blocks getLogs from Vercel IPs; Alchemy demo key is rate-limited
-  // For now, return basic on-chain data only. Full analytics requires real Alchemy key.
   const currentRound = await getCurrentRound();
-  const [beanSupply, currentRoundData] = await Promise.all([
+  const [beanSupply, currentRoundData, latestBlock] = await Promise.all([
     getBeanSupply(),
     getRoundData(currentRound).catch(() => null),
+    client.getBlockNumber(),
   ]);
 
-  const settledLogs: any[] = [];
-  const deployedLogs: any[] = [];
-  const gameStartedLogs: any[] = [];
-  const burnLogs: any[] = [];
+  // Fetch historical events from Alchemy RPC (lookback 30,000 blocks ≈ 3.5 days on Base)
+  const fromBlock = latestBlock > 30_000n ? latestBlock - 30_000n : 0n;
+
+  const [settledLogs, deployedLogs, gameStartedLogs, burnLogs] = await Promise.all([
+    client.getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock, toBlock: latestBlock }).catch(() => []),
+    client.getLogs({ address: GRID_MINING, event: DEPLOYED_EVENT, fromBlock, toBlock: latestBlock }).catch(() => []),
+    client.getLogs({ address: GRID_MINING, event: GAME_STARTED_EVENT, fromBlock, toBlock: latestBlock }).catch(() => []),
+    client.getLogs({ address: BEAN_TOKEN, event: BEAN_TRANSFER_EVENT, fromBlock, toBlock: latestBlock, args: { to: "0x0000000000000000000000000000000000000000" } }).catch(() => []),
+  ]);
 
   // Build timestamp map from GameStarted events
   const roundTimestamps = new Map<number, { startTime: number; endTime: number }>();
