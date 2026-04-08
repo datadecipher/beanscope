@@ -17,7 +17,7 @@ export function RoundHistory({ rounds }: RoundHistoryProps) {
             <th className="pb-2 pr-4">Round</th>
             <th className="pb-2 pr-4">Winner Block</th>
             <th className="pb-2 pr-4">ETH Deployed</th>
-            <th className="pb-2 pr-4">Miners</th>
+            <th className="pb-2 pr-4">Winnings</th>
             <th className="pb-2">Top Miner</th>
           </tr>
         </thead>
@@ -35,7 +35,9 @@ export function RoundHistory({ rounds }: RoundHistoryProps) {
               <td className="py-2 pr-4 font-mono">
                 {parseFloat(r.totalDeployed).toFixed(4)}
               </td>
-              <td className="py-2 pr-4">{r.minerCount}</td>
+              <td className="py-2 pr-4 font-mono">
+                {parseFloat(r.totalWinnings).toFixed(4)}
+              </td>
               <td className="py-2 font-mono text-xs text-zinc-400">
                 {r.topMiner
                   ? `${r.topMiner.slice(0, 6)}...${r.topMiner.slice(-4)}`

@@ -8,6 +8,7 @@ import { HeatmapGrid } from "@/components/heatmap-grid";
 import { RoundHistory } from "@/components/round-history";
 import { WhaleTable } from "@/components/whale-table";
 import { TokenomicsSection } from "@/components/tokenomics-section";
+import { isSuperAdmin } from "@/lib/whitelist";
 
 type Tab = "mining" | "tokenomics";
 
@@ -83,7 +84,14 @@ export default function DashboardPage() {
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold">BeanScope Dashboard</h1>
+        <h1 className="text-2xl font-bold">
+          BeanScope Dashboard
+          {address && isSuperAdmin(address) && (
+            <span className="ml-2 inline-block rounded bg-emerald-600/20 px-2 py-0.5 text-xs font-medium text-emerald-400">
+              Admin
+            </span>
+          )}
+        </h1>
         <ConnectButton />
       </div>
 

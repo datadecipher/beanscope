@@ -4,6 +4,7 @@ import { base } from "viem/chains";
 import { BEAN_SCOPE_ACCESS, BEAN_SCOPE_ACCESS_ABI } from "@/lib/contracts";
 import { ALCHEMY_RPC, PUBLIC_RPC } from "@/lib/config";
 import { fetchDashboardData } from "@/lib/minebean";
+import { isSuperAdmin } from "@/lib/whitelist";
 
 const client = createPublicClient({
   chain: base,
@@ -17,8 +18,8 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: "invalid_wallet" }, { status: 400 });
   }
 
-  // Check access on-chain (skip if contract not deployed yet)
-  if (BEAN_SCOPE_ACCESS) {
+  // Superadmins bypass paywall
+  if (!isSuperAdmin(wallet) && BEAN_SCOPE_ACCESS) {
     try {
       const hasAccess = await client.readContract({
         address: BEAN_SCOPE_ACCESS,

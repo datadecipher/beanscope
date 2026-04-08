@@ -1,5 +1,35 @@
 # Change Log
 
+### 2026-04-08 (Fixes)
+- **What**: Fix dashboard 500, add free analytics tier, superadmin whitelist, favicon, WC env fix, contract audit
+- **Why**: Dashboard was broken (ABI mismatch), users needed free preview, admin needed bypass, branding was default
+- **Files**:
+  - Modified: `frontend/lib/contracts.ts` (fixed getRound ABI — 9 fields, not 14)
+  - Modified: `frontend/lib/minebean.ts` (updated RoundData interface, added FreeStatsData + fetchFreeStats)
+  - Modified: `frontend/app/page.tsx` (added FreeStats component)
+  - Modified: `frontend/app/api/dashboard/route.ts` (superadmin bypass)
+  - Modified: `frontend/app/dashboard/page.tsx` (admin badge)
+  - Modified: `frontend/app/layout.tsx` (favicon + OG metadata)
+  - Modified: `frontend/components/round-history.tsx` (replaced minerCount with totalWinnings)
+  - Created: `frontend/lib/whitelist.ts` (superadmin check)
+  - Created: `frontend/app/api/free-stats/route.ts` (public analytics endpoint)
+  - Created: `frontend/components/free-stats.tsx` (free tier UI)
+  - Created: `frontend/app/icon.svg` (BeanScope favicon)
+  - Created: `contracts/AUDIT.md` (GPT-4o security audit — 9/10)
+  - Vercel: removed/re-added NEXT_PUBLIC_WC_PROJECT_ID (stripped trailing newline)
+
+### 2026-04-08 (Deploy)
+- **What**: Deployed BeanScopeAccess contract to Base mainnet + Vercel production deploy + DNS setup
+- **Why**: Production launch
+- **Files**:
+  - Created: `frontend/scripts/deploy.mjs` (contract deployment script)
+  - Created: `frontend/.env.local` (contract address + WC project ID)
+  - Created: `.gitignore`
+  - Contract: `0x7e58620fa1a7211f63adce098b25f2ce7a3d744d` on Base mainnet
+  - Vercel: `frontend-rho-neon-83.vercel.app`
+  - DNS: beanscope.xyz A record -> 76.76.21.21, www CNAME -> cname.vercel-dns.com
+  - GitHub: datadecipher/beanscope
+
 ### 2026-04-08
 - **What**: Full MVP scaffold — Next.js 16 app with RainbowKit wallet, on-chain data layer, landing page, paid dashboard
 - **Why**: Initial BeanScope build per SESSION_BUILD.md plan

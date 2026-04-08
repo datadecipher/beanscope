@@ -16,6 +16,22 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "BeanScope - MineBean Analytics",
   description: "See what whales see. Advanced analytics for MineBean miners.",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+  },
+  openGraph: {
+    title: "BeanScope - MineBean Analytics",
+    description: "See what whales see. Advanced analytics for MineBean miners on Base.",
+    siteName: "BeanScope",
+  },
+  twitter: {
+    card: "summary",
+    title: "BeanScope",
+    description: "Advanced analytics for MineBean miners.",
+    creator: "@zzzzhodl",
+  },
 };
 
 export default function RootLayout({

@@ -15,11 +15,14 @@ const client = createPublicClient({
 
 export interface RoundData {
   roundId: number;
+  startTime: number;
+  endTime: number;
   winningBlock: number;
   totalDeployed: string;
   totalWinnings: string;
-  minerCount: number;
   topMiner: string;
+  topMinerReward: string;
+  beanpotAmount: string;
   settled: boolean;
 }
 
@@ -31,6 +34,15 @@ export interface DashboardData {
   totalETHDeployed: string;
   beanSupply: string;
   topDeployers: { address: string; totalETH: string; rounds: number }[];
+}
+
+export interface FreeStatsData {
+  currentRound: number;
+  beanSupply: string;
+  roundStatus: "live" | "ended";
+  timeRemaining: number;
+  recentRounds: Pick<RoundData, "roundId" | "topMiner" | "totalDeployed" | "settled">[];
+  blockWinCounts: number[];
 }
 
 export async function getCurrentRound(): Promise<number> {
@@ -52,11 +64,14 @@ export async function getRoundData(roundId: number): Promise<RoundData> {
 
   return {
     roundId,
+    startTime: Number(round.startTime),
+    endTime: Number(round.endTime),
     winningBlock: round.winningBlock,
     totalDeployed: formatEther(round.totalDeployed),
     totalWinnings: formatEther(round.totalWinnings),
-    minerCount: Number(round.minerCount),
     topMiner: round.topMiner,
+    topMinerReward: formatEther(round.topMinerReward),
+    beanpotAmount: formatEther(round.beanpotAmount),
     settled: round.settled,
   };
 }
@@ -147,6 +162,51 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     totalETHDeployed: totalETH.toFixed(4),
     beanSupply,
     topDeployers,
+  };
+}
+
+export async function fetchFreeStats(): Promise<FreeStatsData> {
+  const [currentRound, beanSupply] = await Promise.all([
+    getCurrentRound(),
+    getBeanSupply(),
+  ]);
+
+  const currentRoundData = await getRoundData(currentRound);
+  const now = Math.floor(Date.now() / 1000);
+  const roundStatus = now < currentRoundData.endTime ? "live" : "ended";
+  const timeRemaining = Math.max(0, currentRoundData.endTime - now);
+
+  // Fetch last 3 settled rounds
+  const recentPromises: Promise<RoundData>[] = [];
+  for (let i = currentRound - 1; i >= Math.max(1, currentRound - 10) && recentPromises.length < 3; i--) {
+    recentPromises.push(getRoundData(i));
+  }
+  const recentAll = await Promise.all(recentPromises);
+  const recentSettled = recentAll.filter((r) => r.settled).slice(0, 3);
+
+  // Heatmap from last 50 settled rounds
+  const heatmapPromises: Promise<RoundData>[] = [];
+  for (let i = currentRound; i >= Math.max(1, currentRound - 49); i--) {
+    heatmapPromises.push(getRoundData(i));
+  }
+  const allRounds = await Promise.all(heatmapPromises);
+  const blockWinCounts = new Array(25).fill(0);
+  for (const r of allRounds.filter((r) => r.settled)) {
+    blockWinCounts[r.winningBlock]++;
+  }
+
+  return {
+    currentRound,
+    beanSupply,
+    roundStatus,
+    timeRemaining,
+    recentRounds: recentSettled.map((r) => ({
+      roundId: r.roundId,
+      topMiner: r.topMiner,
+      totalDeployed: r.totalDeployed,
+      settled: r.settled,
+    })),
+    blockWinCounts,
   };
 }
 
