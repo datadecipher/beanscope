@@ -9,10 +9,12 @@ import {
 } from "./contracts";
 import { ALCHEMY_RPC, PUBLIC_RPC } from "./config";
 
-// Use Alchemy for getLogs (publicnode blocks event queries from Vercel IPs)
+// Alchemy demo key is rate-limited; publicnode blocks getLogs from Vercel IPs
+// Use publicnode for non-event calls (read-only, works fine)
+// TODO: Add real Alchemy key to Vercel env for historical data
 const client = createPublicClient({
   chain: base,
-  transport: http(ALCHEMY_RPC),
+  transport: http(PUBLIC_RPC),
 });
 
 export interface RoundData {
@@ -159,22 +161,18 @@ const BEAN_TRANSFER_EVENT = {
 const HISTORY_LOOKBACK = 3_000n;
 
 async function _fetchDashboardData(): Promise<DashboardData> {
-  const [currentRound, beanSupply, latestBlock] = await Promise.all([
+  // Note: publicnode blocks getLogs from Vercel IPs; Alchemy demo key is rate-limited
+  // For now, return basic on-chain data only. Full analytics requires real Alchemy key.
+  const [currentRound, beanSupply, currentRoundData] = await Promise.all([
     getCurrentRound(),
     getBeanSupply(),
-    client.getBlockNumber(),
+    getRoundData(getCurrentRound().then(Number)).catch(() => null),
   ]);
 
-  const fromBlock = latestBlock > HISTORY_LOOKBACK ? latestBlock - HISTORY_LOOKBACK : 0n;
-
-  // Fetch all event types in parallel with 4s timeout per call
-  const [settledLogs, deployedLogs, gameStartedLogs, burnLogs, currentRoundData] = await Promise.all([
-    client.getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock, toBlock: latestBlock }).catch(() => []),
-    client.getLogs({ address: GRID_MINING, event: DEPLOYED_EVENT, fromBlock, toBlock: latestBlock }).catch(() => []),
-    client.getLogs({ address: GRID_MINING, event: GAME_STARTED_EVENT, fromBlock, toBlock: latestBlock }).catch(() => []),
-    client.getLogs({ address: BEAN_TOKEN, event: BEAN_TRANSFER_EVENT, fromBlock, toBlock: latestBlock, args: { to: "0x0000000000000000000000000000000000000000" as `0x${string}` } }).catch(() => []),
-    getRoundData(currentRound).catch(() => null),
-  ]);
+  const settledLogs: any[] = [];
+  const deployedLogs: any[] = [];
+  const gameStartedLogs: any[] = [];
+  const burnLogs: any[] = [];
 
   // Build timestamp map from GameStarted events
   const roundTimestamps = new Map<number, { startTime: number; endTime: number }>();
