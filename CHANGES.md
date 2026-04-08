@@ -1,5 +1,20 @@
 # Change Log
 
+### 2026-04-09 (Alchemy API Integration — In Progress)
+- **What**: Added Alchemy API key (GvTVaw5SNoyB7V-DRvRbK) and integrated event fetching
+- **Status**: Endpoint responds without timeout; charts still empty pending RPC integration fix
+- **Findings**:
+  - ✅ Alchemy free tier RPC is working (tested eth_blockNumber, eth_getLogs)
+  - ✅ Events exist in blockchain (verified via direct Alchemy eth_getLogs query)
+  - ✅ Endpoint responds in <3.3s (no more Vercel timeouts)
+  - ⚠️ Charts empty because viem getLogs isn't populating properly — needs debugging
+- **Lessons Learned**:
+  - Alchemy free tier: max 10-block range per eth_getLogs call → implemented chunking
+  - 100 sequential requests (1000-block lookback) completes in 1-2s
+  - Events confirmed to exist (10+ per 10-block range)
+- **Next Step**: Debug why viem client.getLogs returns empty despite Alchemy having events
+- **Files Modified**: `frontend/lib/minebean.ts` (5 optimization iterations), `frontend/.env` (added ALCHEMY_API_KEY to Vercel)
+
 ### 2026-04-09 (Deployment Documentation & Verification)
 - **What**: Created comprehensive deployment guides and verification tools
 - **Why**: Clarify what works, what's blocked (Alchemy key), and how to unblock it
