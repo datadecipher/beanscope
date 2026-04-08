@@ -1,5 +1,11 @@
 # Change Log
 
+### 2026-04-09 (Analytics Fix — RPC Limitation)
+- **What**: Reverted to basic analytics (currentRound + beanSupply only); disabled event fetching due to RPC limitations
+- **Why**: publicnode blocks getLogs queries from Vercel IPs; Alchemy demo key is rate-limited (429 errors). Full historical analytics need real Alchemy API key in Vercel env
+- **Status**: Endpoint responds with currentRound + beanSupply; charts/tables empty until Alchemy key added
+- **Files**: `frontend/lib/minebean.ts`, `frontend/app/api/analytics/route.ts`, `frontend/lib/config.ts`
+
 ### 2026-04-09 (Advanced Analytics Overhaul)
 - **What**: Full dashboard analytics upgrade — fix heatmap zeros bug, add 4 mining charts, whale intelligence with win rate/sort, live round panel, full tokenomics overhaul (emission curve, yield stats, supply breakdown, burn tracking)
 - **Why**: Heatmap showed all zeros because getLogs lookback was only 3000 blocks (~100 min), missing 24h+ rounds. Analytics were too basic to justify paywall.
