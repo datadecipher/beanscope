@@ -45,7 +45,6 @@ export interface DashboardData {
   totalETHDeployed: string;
   beanSupply: string;
   topDeployers: { address: string; totalETH: string; rounds: number }[];
-  // new fields
   roundHistory: RoundData[];
   topWinners: WinnerData[];
   totalETHRewarded: string;
@@ -154,11 +153,9 @@ const BEAN_TRANSFER_EVENT = {
   ],
 } as const;
 
-// getLogs with a hard per-call timeout (publicnode hangs when there are results)
-const CALL_TIMEOUT_MS = 5_500; // 5.5s per getLogs call max
+const CALL_TIMEOUT_MS = 5_500;
 const CHUNK_SIZE = 3_000n;
-const HISTORY_LOOKBACK = 30_000n; // 10 chunks, 2 batches of 4
-const PARALLEL_BATCH = 4;
+const HISTORY_LOOKBACK = 30_000n;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getLogsWithTimeout(params: any): Promise<any[]> {
@@ -178,13 +175,12 @@ async function getLogsChunked(params: any, from: bigint, to: bigint): Promise<an
     cur = end + 1n;
   }
 
+  // Serialize chunks with small delays to avoid rate limiting
   const results: unknown[] = [];
-  for (let i = 0; i < chunks.length; i += PARALLEL_BATCH) {
-    const batch = chunks.slice(i, i + PARALLEL_BATCH);
-    const batchResults = await Promise.all(
-      batch.map((c) => getLogsWithTimeout({ ...params, fromBlock: c.from, toBlock: c.to }))
-    );
-    results.push(...batchResults.flat());
+  for (const c of chunks) {
+    const chunk = await getLogsWithTimeout({ ...params, fromBlock: c.from, toBlock: c.to });
+    results.push(...chunk);
+    await new Promise((resolve) => setTimeout(resolve, 50)); // 50ms delay between chunks
   }
   return results;
 }
@@ -198,12 +194,16 @@ async function _fetchDashboardData(): Promise<DashboardData> {
 
   const fromBlock = latestBlock > HISTORY_LOOKBACK ? latestBlock - HISTORY_LOOKBACK : 0n;
 
-  // Fetch all event types in parallel using chunked getLogs
+  // Fetch all event types in parallel
   const [settledLogs, deployedLogs, gameStartedLogs, burnLogs, currentRoundData] = await Promise.all([
     getLogsChunked({ address: GRID_MINING, event: ROUND_SETTLED_EVENT }, fromBlock, latestBlock),
     getLogsChunked({ address: GRID_MINING, event: DEPLOYED_EVENT }, fromBlock, latestBlock),
     getLogsChunked({ address: GRID_MINING, event: GAME_STARTED_EVENT }, fromBlock, latestBlock),
-    getLogsChunked({ address: BEAN_TOKEN, event: BEAN_TRANSFER_EVENT, args: { to: "0x0000000000000000000000000000000000000000" as `0x${string}` } }, fromBlock, latestBlock),
+    getLogsChunked({
+      address: BEAN_TOKEN,
+      event: BEAN_TRANSFER_EVENT,
+      args: { to: "0x0000000000000000000000000000000000000000" as `0x${string}` },
+    }, fromBlock, latestBlock),
     getRoundData(currentRound).catch(() => null),
   ]);
 
@@ -225,7 +225,6 @@ async function _fetchDashboardData(): Promise<DashboardData> {
   let bestRound: { roundId: number; totalWinnings: string } | null = null;
   let bestRoundVal = 0;
 
-  // Winner tracking: address → { wins, lastSeen }
   const winnerMap = new Map<string, { wins: number; lastSeen: number }>();
   const roundHistory: RoundData[] = [];
 
@@ -359,7 +358,6 @@ async function _fetchFreeStats(): Promise<FreeStatsData> {
   const roundStatus = currentRoundData && now < currentRoundData.endTime ? "live" : "ended";
   const timeRemaining = currentRoundData ? Math.max(0, currentRoundData.endTime - now) : 0;
 
-  // Free stats only needs recent rounds — 9k blocks ≈ 5hrs, 3 getLogs calls
   const FREE_STATS_LOOKBACK = 9_000n;
   const fromBlock = latestBlock > FREE_STATS_LOOKBACK ? latestBlock - FREE_STATS_LOOKBACK : 0n;
   const settledLogs = await getLogsChunked(
