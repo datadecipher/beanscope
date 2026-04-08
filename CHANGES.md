@@ -1,19 +1,13 @@
 # Change Log
 
-### 2026-04-09 (Alchemy API Integration — In Progress)
-- **What**: Added Alchemy API key (GvTVaw5SNoyB7V-DRvRbK) and integrated event fetching
-- **Status**: Endpoint responds without timeout; charts still empty pending RPC integration fix
-- **Findings**:
-  - ✅ Alchemy free tier RPC is working (tested eth_blockNumber, eth_getLogs)
-  - ✅ Events exist in blockchain (verified via direct Alchemy eth_getLogs query)
-  - ✅ Endpoint responds in <3.3s (no more Vercel timeouts)
-  - ⚠️ Charts empty because viem getLogs isn't populating properly — needs debugging
-- **Lessons Learned**:
-  - Alchemy free tier: max 10-block range per eth_getLogs call → implemented chunking
-  - 100 sequential requests (1000-block lookback) completes in 1-2s
-  - Events confirmed to exist (10+ per 10-block range)
-- **Next Step**: Debug why viem client.getLogs returns empty despite Alchemy having events
-- **Files Modified**: `frontend/lib/minebean.ts` (5 optimization iterations), `frontend/.env` (added ALCHEMY_API_KEY to Vercel)
+### 2026-04-09 (Alchemy API Integration — COMPLETE ✅)
+- **What**: Added Alchemy API key and fixed all RPC integration issues. Charts now populated.
+- **Status**: ✅ Live — `roundHistory: 13 rounds, blockWinCounts: 9/25 blocks, topWinners: 1, totalETHRewarded: 13 ETH`
+- **Root Causes Fixed** (in order):
+  1. `minebean.ts` client was hardcoded to `PUBLIC_RPC` (publicnode) — switched to Alchemy when key present
+  2. Alchemy free tier: max 10-block range per `eth_getLogs` — implemented 10-block chunked fetching
+  3. `toBlock` is inclusive: `fromBlock+10 = 11 blocks` exceeded limit — fixed to `fromBlock+9n`
+- **Files Modified**: `frontend/lib/minebean.ts` (client RPC + chunking + off-by-one fix), Vercel env `ALCHEMY_API_KEY`
 
 ### 2026-04-09 (Deployment Documentation & Verification)
 - **What**: Created comprehensive deployment guides and verification tools
