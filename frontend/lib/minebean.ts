@@ -379,8 +379,16 @@ async function _fetchFreeStats(): Promise<FreeStatsData> {
   const roundStatus = currentRoundData && now < currentRoundData.endTime ? "live" : "ended";
   const timeRemaining = currentRoundData ? Math.max(0, currentRoundData.endTime - now) : 0;
 
-  const fromBlock = latestBlock > HISTORY_LOOKBACK ? latestBlock - HISTORY_LOOKBACK : 0n;
-  const settledLogs = await client.getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock, toBlock: latestBlock }).catch(() => []);
+  // Fetch last 500 blocks using 10-block chunks (Alchemy free tier limit)
+  const freeStatsLookback = 500n;
+  const freeFrom = latestBlock > freeStatsLookback ? latestBlock - freeStatsLookback : 0n;
+  const freeChunks: Promise<any[]>[] = [];
+  for (let i = freeFrom; i < latestBlock; i += 10n) {
+    const end = i + 9n > latestBlock ? latestBlock : i + 9n;
+    freeChunks.push(client.getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock: i, toBlock: end }).catch(() => []));
+  }
+  const settledLogArrays = await Promise.all(freeChunks.map(p => p.catch(() => [])));
+  const settledLogs = settledLogArrays.flat();
 
   const blockWinCounts = new Array(25).fill(0);
   const recentRounds: FreeStatsData["recentRounds"] = [];
