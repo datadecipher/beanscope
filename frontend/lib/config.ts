@@ -1,5 +1,5 @@
 export const ALCHEMY_RPC = `https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY ?? "demo"}`;
-export const PUBLIC_RPC = "https://mainnet.base.org";
+export const PUBLIC_RPC = "https://base.llamarpc.com";
 
 export const PRICES = {
   day: { label: "24h Pass", eth: "0.01", wei: 10000000000000000n },
