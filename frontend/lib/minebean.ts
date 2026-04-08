@@ -184,20 +184,16 @@ async function _fetchDashboardData(): Promise<DashboardData> {
     args?: any
   ): Promise<any[]> {
     const allLogs: any[] = [];
-    // Batch into 5 parallel groups to speed up while respecting rate limits
-    const batchSize = 20;
-    for (let startIdx = 0; startIdx < (Number(toBlock) - Number(fromBlock)) / 10; startIdx += batchSize) {
-      const batchPromises = [];
-      for (let i = 0; i < batchSize && Number(fromBlock) + (startIdx + i) * 10 < Number(toBlock); i++) {
-        const blockNum = Number(fromBlock) + (startIdx + i) * 10;
-        const chunkStart = BigInt(blockNum);
-        const chunkEnd = BigInt(Math.min(blockNum + 10, Number(toBlock)));
-        batchPromises.push(
-          client.getLogs({ address, event: eventDef, fromBlock: chunkStart, toBlock: chunkEnd, args }).catch(() => [] as any[])
-        );
+    // Simple sequential fetch: 100 requests for 1000 blocks
+    for (let i = fromBlock; i < toBlock; i += CHUNK_SIZE) {
+      const chunkStart = i;
+      const chunkEnd = i + CHUNK_SIZE > toBlock ? toBlock : i + CHUNK_SIZE;
+      try {
+        const logs = await client.getLogs({ address, event: eventDef, fromBlock: chunkStart, toBlock: chunkEnd, args });
+        allLogs.push(...logs);
+      } catch (e) {
+        // Silently continue on error
       }
-      const batchResults = await Promise.all(batchPromises);
-      allLogs.push(...batchResults.flat());
     }
     return allLogs;
   }
