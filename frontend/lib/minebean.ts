@@ -153,46 +153,9 @@ const BEAN_TRANSFER_EVENT = {
   ],
 } as const;
 
-const CALL_TIMEOUT_MS = 5_500;
-const CHUNK_SIZE = 3_000n;
-const HISTORY_LOOKBACK = 30_000n;
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function getLogsWithTimeout(params: any): Promise<any[]> {
-  let timeoutId: NodeJS.Timeout | null = null;
-  const timeoutPromise = new Promise<null>((resolve) => {
-    timeoutId = setTimeout(() => resolve(null), CALL_TIMEOUT_MS);
-  });
-
-  try {
-    const result = await Promise.race([client.getLogs(params), timeoutPromise]);
-    if (timeoutId) clearTimeout(timeoutId);
-    return result ?? [];
-  } catch (e) {
-    if (timeoutId) clearTimeout(timeoutId);
-    return [];
-  }
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function getLogsChunked(params: any, from: bigint, to: bigint): Promise<any[]> {
-  const chunks: { from: bigint; to: bigint }[] = [];
-  let cur = from;
-  while (cur <= to) {
-    const end = cur + CHUNK_SIZE > to ? to : cur + CHUNK_SIZE;
-    chunks.push({ from: cur, to: end });
-    cur = end + 1n;
-  }
-
-  // Serialize chunks with small delays to avoid rate limiting
-  const results: unknown[] = [];
-  for (const c of chunks) {
-    const chunk = await getLogsWithTimeout({ ...params, fromBlock: c.from, toBlock: c.to });
-    results.push(...chunk);
-    await new Promise((resolve) => setTimeout(resolve, 50)); // 50ms delay between chunks
-  }
-  return results;
-}
+// Keep lookback small (3000 blocks ≈ ~2.5hrs on Base) to avoid RPC hangs
+// With unstable_cache @30s, this refreshes often enough for live dashboard
+const HISTORY_LOOKBACK = 3_000n;
 
 async function _fetchDashboardData(): Promise<DashboardData> {
   const [currentRound, beanSupply, latestBlock] = await Promise.all([
@@ -203,16 +166,12 @@ async function _fetchDashboardData(): Promise<DashboardData> {
 
   const fromBlock = latestBlock > HISTORY_LOOKBACK ? latestBlock - HISTORY_LOOKBACK : 0n;
 
-  // Fetch all event types in parallel
+  // Fetch all event types in parallel with 4s timeout per call
   const [settledLogs, deployedLogs, gameStartedLogs, burnLogs, currentRoundData] = await Promise.all([
-    getLogsChunked({ address: GRID_MINING, event: ROUND_SETTLED_EVENT }, fromBlock, latestBlock),
-    getLogsChunked({ address: GRID_MINING, event: DEPLOYED_EVENT }, fromBlock, latestBlock),
-    getLogsChunked({ address: GRID_MINING, event: GAME_STARTED_EVENT }, fromBlock, latestBlock),
-    getLogsChunked({
-      address: BEAN_TOKEN,
-      event: BEAN_TRANSFER_EVENT,
-      args: { to: "0x0000000000000000000000000000000000000000" as `0x${string}` },
-    }, fromBlock, latestBlock),
+    client.getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock, toBlock: latestBlock }).catch(() => []),
+    client.getLogs({ address: GRID_MINING, event: DEPLOYED_EVENT, fromBlock, toBlock: latestBlock }).catch(() => []),
+    client.getLogs({ address: GRID_MINING, event: GAME_STARTED_EVENT, fromBlock, toBlock: latestBlock }).catch(() => []),
+    client.getLogs({ address: BEAN_TOKEN, event: BEAN_TRANSFER_EVENT, fromBlock, toBlock: latestBlock, args: { to: "0x0000000000000000000000000000000000000000" as `0x${string}` } }).catch(() => []),
     getRoundData(currentRound).catch(() => null),
   ]);
 
@@ -367,13 +326,8 @@ async function _fetchFreeStats(): Promise<FreeStatsData> {
   const roundStatus = currentRoundData && now < currentRoundData.endTime ? "live" : "ended";
   const timeRemaining = currentRoundData ? Math.max(0, currentRoundData.endTime - now) : 0;
 
-  const FREE_STATS_LOOKBACK = 9_000n;
-  const fromBlock = latestBlock > FREE_STATS_LOOKBACK ? latestBlock - FREE_STATS_LOOKBACK : 0n;
-  const settledLogs = await getLogsChunked(
-    { address: GRID_MINING, event: ROUND_SETTLED_EVENT },
-    fromBlock,
-    latestBlock
-  );
+  const fromBlock = latestBlock > HISTORY_LOOKBACK ? latestBlock - HISTORY_LOOKBACK : 0n;
+  const settledLogs = await client.getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock, toBlock: latestBlock }).catch(() => []);
 
   const blockWinCounts = new Array(25).fill(0);
   const recentRounds: FreeStatsData["recentRounds"] = [];
