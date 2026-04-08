@@ -9,9 +9,10 @@ import {
 } from "./contracts";
 import { ALCHEMY_RPC, PUBLIC_RPC } from "./config";
 
+// Use Alchemy for getLogs (publicnode blocks event queries from Vercel IPs)
 const client = createPublicClient({
   chain: base,
-  transport: http(process.env.ALCHEMY_API_KEY ? ALCHEMY_RPC : PUBLIC_RPC),
+  transport: http(ALCHEMY_RPC),
 });
 
 export interface RoundData {
