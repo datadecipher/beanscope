@@ -186,7 +186,8 @@ async function _fetchDashboardData(): Promise<DashboardData> {
     // Simple sequential fetch: 100 requests for 1000 blocks
     for (let i = fromBlock; i < toBlock; i += CHUNK_SIZE) {
       const chunkStart = i;
-      const chunkEnd = i + CHUNK_SIZE > toBlock ? toBlock : i + CHUNK_SIZE;
+      // toBlock is inclusive; max 10 blocks = fromBlock to fromBlock+9
+      const chunkEnd = i + CHUNK_SIZE - 1n > toBlock ? toBlock : i + CHUNK_SIZE - 1n;
       try {
         const logs = await client.getLogs({ address, event: eventDef, fromBlock: chunkStart, toBlock: chunkEnd, args });
         allLogs.push(...logs);
