@@ -154,8 +154,27 @@ const BEAN_TRANSFER_EVENT = {
   ],
 } as const;
 
-// Use large lookback to capture all contract history (~5M blocks on Base ≈ several months)
-const HISTORY_LOOKBACK = 5_000_000n;
+// publicnode limits getLogs to ~10k blocks per call — chunk to avoid silent failures
+const CHUNK_SIZE = 9_500n;
+// How many blocks back to scan (Base ~2s/block; 500k blocks ≈ ~11 days)
+const HISTORY_LOOKBACK = 500_000n;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getLogsChunked(params: any, from: bigint, to: bigint): Promise<any[]> {
+  const results: unknown[] = [];
+  let cur = from;
+  while (cur <= to) {
+    const end = cur + CHUNK_SIZE > to ? to : cur + CHUNK_SIZE;
+    try {
+      const chunk = await client.getLogs({ ...params, fromBlock: cur, toBlock: end });
+      results.push(...chunk);
+    } catch {
+      // skip failed chunk
+    }
+    cur = end + 1n;
+  }
+  return results;
+}
 
 async function _fetchDashboardData(): Promise<DashboardData> {
   const [currentRound, beanSupply, latestBlock] = await Promise.all([
@@ -166,17 +185,12 @@ async function _fetchDashboardData(): Promise<DashboardData> {
 
   const fromBlock = latestBlock > HISTORY_LOOKBACK ? latestBlock - HISTORY_LOOKBACK : 0n;
 
-  // Fetch all event types in parallel
+  // Fetch all event types in parallel using chunked getLogs
   const [settledLogs, deployedLogs, gameStartedLogs, burnLogs, currentRoundData] = await Promise.all([
-    client.getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock }).catch(() => []),
-    client.getLogs({ address: GRID_MINING, event: DEPLOYED_EVENT, fromBlock }).catch(() => []),
-    client.getLogs({ address: GRID_MINING, event: GAME_STARTED_EVENT, fromBlock }).catch(() => []),
-    client.getLogs({
-      address: BEAN_TOKEN,
-      event: BEAN_TRANSFER_EVENT,
-      fromBlock,
-      args: { to: "0x0000000000000000000000000000000000000000" },
-    }).catch(() => []),
+    getLogsChunked({ address: GRID_MINING, event: ROUND_SETTLED_EVENT }, fromBlock, latestBlock),
+    getLogsChunked({ address: GRID_MINING, event: DEPLOYED_EVENT }, fromBlock, latestBlock),
+    getLogsChunked({ address: GRID_MINING, event: GAME_STARTED_EVENT }, fromBlock, latestBlock),
+    getLogsChunked({ address: BEAN_TOKEN, event: BEAN_TRANSFER_EVENT, args: { to: "0x0000000000000000000000000000000000000000" as `0x${string}` } }, fromBlock, latestBlock),
     getRoundData(currentRound).catch(() => null),
   ]);
 
@@ -333,9 +347,11 @@ async function _fetchFreeStats(): Promise<FreeStatsData> {
   const timeRemaining = currentRoundData ? Math.max(0, currentRoundData.endTime - now) : 0;
 
   const fromBlock = latestBlock > HISTORY_LOOKBACK ? latestBlock - HISTORY_LOOKBACK : 0n;
-  const settledLogs = await client
-    .getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock })
-    .catch(() => []);
+  const settledLogs = await getLogsChunked(
+    { address: GRID_MINING, event: ROUND_SETTLED_EVENT },
+    fromBlock,
+    latestBlock
+  );
 
   const blockWinCounts = new Array(25).fill(0);
   const recentRounds: FreeStatsData["recentRounds"] = [];
