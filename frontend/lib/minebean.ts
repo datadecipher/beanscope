@@ -169,48 +169,47 @@ async function _fetchDashboardData(): Promise<DashboardData> {
 
   // Fetch historical events from Alchemy RPC
   // Alchemy free tier: max 10-block range per getLogs call
-  // Fetch last 1000 blocks (~2 hours on Base) in 100 sequential 10-block chunks
-  // With minimal overhead this should take ~1-2 seconds
+  // Fetch last 2000 blocks (~4 hours on Base) using parallel batches of 20 chunks
+  // 200 total chunks / 20 parallel = 10 batches × ~50ms = ~500ms per event type
   const CHUNK_SIZE = 10n;
-  const lookbackBlocks = 1000n;
+  const PARALLEL_BATCH = 20;
+  const lookbackBlocks = 2000n;
   const fromBlock = latestBlock > lookbackBlocks ? latestBlock - lookbackBlocks : 0n;
 
   async function fetchLogsInChunks(
     address: `0x${string}`,
     eventDef: any,
-    fromBlock: bigint,
-    toBlock: bigint,
+    from: bigint,
+    to: bigint,
     args?: any
   ): Promise<any[]> {
     const allLogs: any[] = [];
-    // Simple sequential fetch: 100 requests for 1000 blocks
-    for (let i = fromBlock; i < toBlock; i += CHUNK_SIZE) {
-      const chunkStart = i;
-      // toBlock is inclusive; max 10 blocks = fromBlock to fromBlock+9
-      const chunkEnd = i + CHUNK_SIZE - 1n > toBlock ? toBlock : i + CHUNK_SIZE - 1n;
-      try {
-        const logs = await client.getLogs({ address, event: eventDef, fromBlock: chunkStart, toBlock: chunkEnd, args });
-        allLogs.push(...logs);
-      } catch (e) {
-        // Silently continue on error
-      }
+    // Build all chunk ranges
+    const chunks: [bigint, bigint][] = [];
+    for (let i = from; i < to; i += CHUNK_SIZE) {
+      const chunkEnd = i + CHUNK_SIZE - 1n > to ? to : i + CHUNK_SIZE - 1n;
+      chunks.push([i, chunkEnd]);
+    }
+    // Fetch in parallel batches to stay under rate limits
+    for (let i = 0; i < chunks.length; i += PARALLEL_BATCH) {
+      const batch = chunks.slice(i, i + PARALLEL_BATCH);
+      const results = await Promise.all(
+        batch.map(([start, end]) =>
+          client.getLogs({ address, event: eventDef, fromBlock: start, toBlock: end, args })
+            .catch(() => [] as any[])
+        )
+      );
+      allLogs.push(...results.flat());
     }
     return allLogs;
   }
 
-  // Fetch all event types in parallel with timeouts
-  const withTimeout = (promise: Promise<any>, timeoutMs: number = 2000): Promise<any> => {
-    return Promise.race([
-      promise,
-      new Promise((_r, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs)),
-    ]).catch(() => []);
-  };
-
+  // Fetch all 4 event types in parallel — each runs its own chunked batches
   const [settledLogs, deployedLogs, gameStartedLogs, burnLogs] = await Promise.all([
-    withTimeout(fetchLogsInChunks(GRID_MINING, ROUND_SETTLED_EVENT, fromBlock, latestBlock), 2000),
-    withTimeout(fetchLogsInChunks(GRID_MINING, DEPLOYED_EVENT, fromBlock, latestBlock), 2000),
-    withTimeout(fetchLogsInChunks(GRID_MINING, GAME_STARTED_EVENT, fromBlock, latestBlock), 2000),
-    withTimeout(fetchLogsInChunks(BEAN_TOKEN, BEAN_TRANSFER_EVENT, fromBlock, latestBlock, { to: "0x0000000000000000000000000000000000000000" }), 2000),
+    fetchLogsInChunks(GRID_MINING, ROUND_SETTLED_EVENT, fromBlock, latestBlock).catch(() => []),
+    fetchLogsInChunks(GRID_MINING, DEPLOYED_EVENT, fromBlock, latestBlock).catch(() => []),
+    fetchLogsInChunks(GRID_MINING, GAME_STARTED_EVENT, fromBlock, latestBlock).catch(() => []),
+    fetchLogsInChunks(BEAN_TOKEN, BEAN_TRANSFER_EVENT, fromBlock, latestBlock, { to: "0x0000000000000000000000000000000000000000" }).catch(() => []),
   ]) as any[];
 
   // Build timestamp map from GameStarted events
@@ -243,14 +242,14 @@ async function _fetchDashboardData(): Promise<DashboardData> {
     if (block >= 0 && block < 25) blockWinCounts[block]++;
 
     const winnings = parseFloat(formatEther(log.args.totalWinnings ?? 0n));
-    const reward = parseFloat(formatEther(log.args.topMinerReward ?? 0n));
+    // topMinerReward is 1 BEAN (token, not ETH) — do NOT sum as ETH
     const beanpot = parseFloat(formatEther(log.args.beanpotAmount ?? 0n));
     const roundId = Number(log.args.roundId ?? 0);
     const miner = log.args.topMiner ?? "0x0000000000000000000000000000000000000000";
     const ts = roundTimestamps.get(roundId);
 
-    totalETHDeployedNum += winnings;
-    totalETHRewardedNum += reward;
+    totalETHDeployedNum += winnings;   // ETH paid out to winner each round
+    totalETHRewardedNum += winnings;   // same: total ETH rewarded = total ETH won
     totalBeanpotNum += beanpot;
 
     if (winnings > bestRoundVal) {
@@ -258,7 +257,9 @@ async function _fetchDashboardData(): Promise<DashboardData> {
       bestRound = { roundId, totalWinnings: winnings.toFixed(6) };
     }
 
-    const validMiner = miner !== "0x0000000000000000000000000000000000000000";
+    // Exclude zero address and address(1) precompile — both indicate no real winner
+    const validMiner = miner !== "0x0000000000000000000000000000000000000000" &&
+      miner !== "0x0000000000000000000000000000000000000001";
     if (validMiner) {
       const ex = winnerMap.get(miner) ?? { wins: 0, lastSeen: 0 };
       ex.wins++;
@@ -271,17 +272,18 @@ async function _fetchDashboardData(): Promise<DashboardData> {
       startTime: ts?.startTime ?? 0,
       endTime: ts?.endTime ?? 0,
       winningBlock: block,
-      totalDeployed: formatEther(log.args.totalWinnings ?? 0n),
+      totalDeployed: formatEther(log.args.totalWinnings ?? 0n), // filled later from deployerMap if available
       totalWinnings: formatEther(log.args.totalWinnings ?? 0n),
       topMiner: miner,
-      topMinerReward: formatEther(log.args.topMinerReward ?? 0n),
+      topMinerReward: "1", // always 1 BEAN per round (BEAN token, not ETH)
       beanpotAmount: formatEther(log.args.beanpotAmount ?? 0n),
       settled: true,
     });
   }
 
-  // Deployer tracking from Deployed events
+  // Deployer tracking from Deployed events — also compute per-round totalDeployed
   const deployerMap = new Map<string, { totalETH: number; rounds: Set<number> }>();
+  const roundDeployedMap = new Map<number, number>(); // roundId → total ETH deployed
   for (const log of deployedLogs) {
     const user = log.args.user as string;
     const amount = parseFloat(formatEther(log.args.totalAmount ?? 0n));
@@ -290,7 +292,18 @@ async function _fetchDashboardData(): Promise<DashboardData> {
     ex.totalETH += amount;
     ex.rounds.add(roundId);
     deployerMap.set(user, ex);
+    roundDeployedMap.set(roundId, (roundDeployedMap.get(roundId) ?? 0) + amount);
   }
+
+  // Backfill totalDeployed in roundHistory from deployerMap
+  for (const round of roundHistory) {
+    const deployed = roundDeployedMap.get(round.roundId);
+    if (deployed) round.totalDeployed = deployed.toFixed(6);
+  }
+
+  // Also sum totalDeployed properly from Deployed events (not from totalWinnings)
+  let totalETHFromDeployed = 0;
+  for (const v of roundDeployedMap.values()) totalETHFromDeployed += v;
 
   // Build topWinners with win rate
   const topWinners: WinnerData[] = Array.from(winnerMap.entries())
@@ -327,7 +340,8 @@ async function _fetchDashboardData(): Promise<DashboardData> {
   }
 
   const settledCount = roundHistory.length;
-  const avgYield = settledCount > 0 ? totalETHDeployedNum / settledCount : 0;
+  // avgYieldPerRound = avg ETH won per round (from totalWinnings)
+  const avgYield = settledCount > 0 ? totalETHRewardedNum / settledCount : 0;
 
   const recentRounds = [...roundHistory].reverse().slice(0, 20);
 
@@ -336,7 +350,8 @@ async function _fetchDashboardData(): Promise<DashboardData> {
     totalRounds: currentRound,
     recentRounds,
     blockWinCounts,
-    totalETHDeployed: totalETHDeployedNum.toFixed(4),
+    // totalETHDeployed = sum of ETH deployed by miners (from Deployed events if available, else totalWinnings)
+    totalETHDeployed: (totalETHFromDeployed > 0 ? totalETHFromDeployed : totalETHDeployedNum).toFixed(4),
     beanSupply,
     topDeployers,
     roundHistory,
