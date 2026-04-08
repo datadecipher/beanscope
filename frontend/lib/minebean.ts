@@ -168,24 +168,40 @@ async function _fetchDashboardData(): Promise<DashboardData> {
     client.getBlockNumber(),
   ]);
 
-  // Fetch historical events from Alchemy RPC with per-call timeout
-  // Use smaller lookback (10k blocks ≈ 1.2 days on Base) to stay under Vercel 10s limit
-  const fromBlock = latestBlock > 10_000n ? latestBlock - 10_000n : 0n;
+  // Fetch historical events from Alchemy RPC
+  // Alchemy free tier: max 10-block range per getLogs call
+  // Strategy: fetch last 1000 blocks in 100 parallel 10-block chunks
+  const CHUNK_SIZE = 10n;
+  const lookbackBlocks = 1000n;
+  const fromBlock = latestBlock > lookbackBlocks ? latestBlock - lookbackBlocks : 0n;
 
-  // Wrap each getLogs in Promise.race with 3s timeout (4 calls × 3s = 12s max, but parallelized)
-  const withTimeout = (promise: Promise<any>, label: string) =>
-    Promise.race([
-      promise.catch(() => []),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`${label} timeout`)), 3000)
-      ),
-    ]).catch(() => []);
+  async function fetchLogsInChunks(
+    address: `0x${string}`,
+    eventDef: any,
+    fromBlock: bigint,
+    toBlock: bigint,
+    args?: any
+  ) {
+    const chunks = [];
+    for (let i = fromBlock; i < toBlock; i += CHUNK_SIZE) {
+      const chunkStart = i;
+      const chunkEnd = i + CHUNK_SIZE - 1n > toBlock ? toBlock : i + CHUNK_SIZE - 1n;
+      chunks.push(
+        client.getLogs({ address, event: eventDef, fromBlock: chunkStart, toBlock: chunkEnd, args }).catch(() => [])
+      );
+      // Small delay between requests to avoid rate limits
+      await new Promise(r => setTimeout(r, 50));
+    }
+    const results = await Promise.all(chunks);
+    return results.flat();
+  }
 
+  // Fetch all event types in parallel
   const [settledLogs, deployedLogs, gameStartedLogs, burnLogs] = await Promise.all([
-    withTimeout(client.getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock, toBlock: latestBlock }), "RoundSettled"),
-    withTimeout(client.getLogs({ address: GRID_MINING, event: DEPLOYED_EVENT, fromBlock, toBlock: latestBlock }), "Deployed"),
-    withTimeout(client.getLogs({ address: GRID_MINING, event: GAME_STARTED_EVENT, fromBlock, toBlock: latestBlock }), "GameStarted"),
-    withTimeout(client.getLogs({ address: BEAN_TOKEN, event: BEAN_TRANSFER_EVENT, fromBlock, toBlock: latestBlock, args: { to: "0x0000000000000000000000000000000000000000" } }), "BeanBurn"),
+    fetchLogsInChunks(GRID_MINING, ROUND_SETTLED_EVENT, fromBlock, latestBlock).catch(() => []),
+    fetchLogsInChunks(GRID_MINING, DEPLOYED_EVENT, fromBlock, latestBlock).catch(() => []),
+    fetchLogsInChunks(GRID_MINING, GAME_STARTED_EVENT, fromBlock, latestBlock).catch(() => []),
+    fetchLogsInChunks(BEAN_TOKEN, BEAN_TRANSFER_EVENT, fromBlock, latestBlock, { to: "0x0000000000000000000000000000000000000000" }).catch(() => []),
   ]);
 
   // Build timestamp map from GameStarted events
