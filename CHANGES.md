@@ -1,5 +1,20 @@
 # Change Log
 
+### 2026-04-09 (Analytics Data Quality Fix)
+- **What**: Fixed all tokenomics and analytics calculation bugs
+- **Bugs fixed**:
+  1. `totalETHRewarded` was "17 ETH" (was counting 1 BEAN/round as 1 ETH) → now correct ~1.16 ETH
+  2. `avgYieldPerRound` now shows real ETH avg (~0.08 ETH) instead of "1 ETH/round"
+  3. `totalETHDeployed` now sourced from Deployed events (actual ETH deposited by miners)
+  4. Per-round `totalDeployed` backfilled from Deployed events in roundHistory
+  5. `topMiner` address(1) (ECDSA precompile) excluded from winner list
+  6. Free-stats endpoint getLogs also fixed for Alchemy free tier chunking
+  7. Removed 2s per-event timeout that was killing sequential fetcher early (only 40/100 chunks ran)
+  8. Parallel batch size reduced to 5 to avoid Alchemy rate limits
+- **Remaining limitation**: Alchemy free tier = max 10-block range = only ~14 rounds per fetch. Upgrade to PAYG to get full history.
+- **Note**: `topMiner` from RoundSettled event is address(0) for most rounds (MineBean stores winner at claim time, not settlement). Winner addresses are unreliable from events — only `topDeployers` (20 real whale addresses) are reliable.
+- **Files Modified**: `frontend/lib/minebean.ts` (data calcs, chunking), `frontend/app/api/analytics/route.ts` (15s timeout)
+
 ### 2026-04-09 (Alchemy API Integration — COMPLETE ✅)
 - **What**: Added Alchemy API key and fixed all RPC integration issues. Charts now populated.
 - **Status**: ✅ Live — `roundHistory: 13 rounds, blockWinCounts: 9/25 blocks, topWinners: 1, totalETHRewarded: 13 ETH`
