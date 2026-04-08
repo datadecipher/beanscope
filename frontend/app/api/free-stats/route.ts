@@ -1,8 +1,7 @@
 export const maxDuration = 30;
+export const revalidate = 30;
 
 import { fetchFreeStats } from "@/lib/minebean";
-
-export const revalidate = 30;
 
 export async function GET() {
   try {

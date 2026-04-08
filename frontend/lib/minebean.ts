@@ -1,4 +1,5 @@
 import { createPublicClient, http, formatEther, type Address } from "viem";
+import { unstable_cache } from "next/cache";
 import { base } from "viem/chains";
 import {
   GRID_MINING,
@@ -113,7 +114,7 @@ const DEPLOYED_EVENT = {
   ],
 } as const;
 
-export async function fetchDashboardData(): Promise<DashboardData> {
+async function _fetchDashboardData(): Promise<DashboardData> {
   const [currentRound, beanSupply, latestBlock] = await Promise.all([
     getCurrentRound(),
     getBeanSupply(),
@@ -191,7 +192,7 @@ export async function fetchDashboardData(): Promise<DashboardData> {
   };
 }
 
-export async function fetchFreeStats(): Promise<FreeStatsData> {
+async function _fetchFreeStats(): Promise<FreeStatsData> {
   const [currentRound, beanSupply, currentRoundData, latestBlock] = await Promise.all([
     getCurrentRound(),
     getBeanSupply(),
@@ -233,6 +234,18 @@ export async function fetchFreeStats(): Promise<FreeStatsData> {
     blockWinCounts,
   };
 }
+
+export const fetchDashboardData = unstable_cache(
+  _fetchDashboardData,
+  ["dashboard-data"],
+  { revalidate: 30 }
+);
+
+export const fetchFreeStats = unstable_cache(
+  _fetchFreeStats,
+  ["free-stats"],
+  { revalidate: 30 }
+);
 
 export async function getUserStats(address: Address) {
   const [unclaimedETH, unclaimedBEAN] = await Promise.all([
