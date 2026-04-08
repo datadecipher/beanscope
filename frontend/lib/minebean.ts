@@ -154,13 +154,13 @@ const BEAN_TRANSFER_EVENT = {
   ],
 } as const;
 
-// publicnode limits getLogs range — keep chunks small for fast responses
-const CHUNK_SIZE = 5_000n;
-// 100k blocks on Base ≈ ~55hrs of history; covers 600+ rounds at 5min/round
-// This fits within Vercel Hobby 10s function timeout with parallel fetching
-const HISTORY_LOOKBACK = 100_000n;
+// publicnode supports ~3000 block getLogs ranges (proven by original working code)
+// Keep chunk=3000, lookback=30k (10 chunks, 2 batches of 5), all 4 event types in parallel
+// Total: ~2-3s for getLogs + 2s overhead = ~5s, fits Vercel Hobby 10s limit
+const CHUNK_SIZE = 3_000n;
+const HISTORY_LOOKBACK = 30_000n;
 
-const PARALLEL_BATCH = 6; // parallel getLogs calls per event type
+const PARALLEL_BATCH = 5; // parallel getLogs calls per event type
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getLogsChunked(params: any, from: bigint, to: bigint): Promise<any[]> {
@@ -357,8 +357,8 @@ async function _fetchFreeStats(): Promise<FreeStatsData> {
   const roundStatus = currentRoundData && now < currentRoundData.endTime ? "live" : "ended";
   const timeRemaining = currentRoundData ? Math.max(0, currentRoundData.endTime - now) : 0;
 
-  // Free stats only needs recent rounds — 20k blocks ≈ ~11hrs
-  const FREE_STATS_LOOKBACK = 20_000n;
+  // Free stats only needs recent rounds — 9k blocks ≈ 5hrs, 3 getLogs calls
+  const FREE_STATS_LOOKBACK = 9_000n;
   const fromBlock = latestBlock > FREE_STATS_LOOKBACK ? latestBlock - FREE_STATS_LOOKBACK : 0n;
   const settledLogs = await getLogsChunked(
     { address: GRID_MINING, event: ROUND_SETTLED_EVENT },
