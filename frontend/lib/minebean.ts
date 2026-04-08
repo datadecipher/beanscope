@@ -9,12 +9,11 @@ import {
 } from "./contracts";
 import { ALCHEMY_RPC, PUBLIC_RPC } from "./config";
 
-// Alchemy demo key is rate-limited; publicnode blocks getLogs from Vercel IPs
-// Use publicnode for non-event calls (read-only, works fine)
-// TODO: Add real Alchemy key to Vercel env for historical data
+// Use Alchemy when API key is available (required for getLogs from Vercel IPs)
+// publicnode blocks getLogs from Vercel serverless — Alchemy works fine
 const client = createPublicClient({
   chain: base,
-  transport: http(PUBLIC_RPC),
+  transport: http(process.env.ALCHEMY_API_KEY ? ALCHEMY_RPC : PUBLIC_RPC),
 });
 
 export interface RoundData {
