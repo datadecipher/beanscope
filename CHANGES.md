@@ -1,5 +1,16 @@
 # Change Log
 
+### 2026-04-08 (Fixes v2)
+- **What**: Fix Vercel timeouts — split dashboard into ISR analytics + dynamic access-check; switch RPC to publicnode
+- **Why**: fetchDashboardData was hitting Vercel 10s limit; multiple public RPCs block Vercel IPs for dynamic routes
+- **Files**:
+  - Created: `frontend/app/api/analytics/route.ts` (ISR-cached analytics, revalidate=30)
+  - Modified: `frontend/app/api/dashboard/route.ts` (now only does access check, fast)
+  - Modified: `frontend/app/dashboard/page.tsx` (fetch analytics from /api/analytics after access ok)
+  - Modified: `frontend/lib/minebean.ts` (replaced per-round getRound calls with getLogs events; added unstable_cache)
+  - Modified: `frontend/lib/config.ts` (switched public RPC to base-rpc.publicnode.com)
+- **Note**: hasAccess contract call returns no data — paywall not enforcing. Contract may need redeployment.
+
 ### 2026-04-08 (Fixes)
 - **What**: Fix dashboard 500, add free analytics tier, superadmin whitelist, favicon, WC env fix, contract audit
 - **Why**: Dashboard was broken (ABI mismatch), users needed free preview, admin needed bypass, branding was default
