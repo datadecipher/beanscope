@@ -155,10 +155,10 @@ const BEAN_TRANSFER_EVENT = {
 } as const;
 
 // getLogs with a hard per-call timeout (publicnode hangs when there are results)
-const CALL_TIMEOUT_MS = 4_000; // 4s per getLogs call max
+const CALL_TIMEOUT_MS = 5_500; // 5.5s per getLogs call max
 const CHUNK_SIZE = 3_000n;
-const HISTORY_LOOKBACK = 30_000n; // 10 chunks, 2 batches of 5
-const PARALLEL_BATCH = 5;
+const HISTORY_LOOKBACK = 30_000n; // 10 chunks, 2 batches of 4
+const PARALLEL_BATCH = 4;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getLogsWithTimeout(params: any): Promise<any[]> {
