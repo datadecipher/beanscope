@@ -181,19 +181,19 @@ async function _fetchDashboardData(): Promise<DashboardData> {
     fromBlock: bigint,
     toBlock: bigint,
     args?: any
-  ) {
-    const chunks = [];
+  ): Promise<any[]> {
+    const chunks: Promise<any[]>[] = [];
     for (let i = fromBlock; i < toBlock; i += CHUNK_SIZE) {
       const chunkStart = i;
       const chunkEnd = i + CHUNK_SIZE - 1n > toBlock ? toBlock : i + CHUNK_SIZE - 1n;
       chunks.push(
-        client.getLogs({ address, event: eventDef, fromBlock: chunkStart, toBlock: chunkEnd, args }).catch(() => [])
+        client.getLogs({ address, event: eventDef, fromBlock: chunkStart, toBlock: chunkEnd, args }).catch(() => [] as any[])
       );
       // Small delay between requests to avoid rate limits
       await new Promise(r => setTimeout(r, 50));
     }
     const results = await Promise.all(chunks);
-    return results.flat();
+    return results.flat() as any[];
   }
 
   // Fetch all event types in parallel
