@@ -1,5 +1,10 @@
 # Change Log
 
+### 2026-04-08 (Deploy fix)
+- **What**: Deploy BeanScopeAccess contract to Base mainnet, update env var, redeploy
+- **Why**: Previous contract address 0x7e58620... had no bytecode — contract was never deployed. Paywall was not enforcing (everyone got free access). New contract: 0x12fc49c7f69bc434caddcaa599cffc06a7d3a701
+- **Files**: `frontend/.env.local`, Vercel env `NEXT_PUBLIC_ACCESS_CONTRACT`
+
 ### 2026-04-08 (Fixes v2)
 - **What**: Fix Vercel timeouts — split dashboard into ISR analytics + dynamic access-check; switch RPC to publicnode
 - **Why**: fetchDashboardData was hitting Vercel 10s limit; multiple public RPCs block Vercel IPs for dynamic routes
