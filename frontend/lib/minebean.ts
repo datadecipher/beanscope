@@ -168,14 +168,24 @@ async function _fetchDashboardData(): Promise<DashboardData> {
     client.getBlockNumber(),
   ]);
 
-  // Fetch historical events from Alchemy RPC (lookback 30,000 blocks ≈ 3.5 days on Base)
-  const fromBlock = latestBlock > 30_000n ? latestBlock - 30_000n : 0n;
+  // Fetch historical events from Alchemy RPC with per-call timeout
+  // Use smaller lookback (10k blocks ≈ 1.2 days on Base) to stay under Vercel 10s limit
+  const fromBlock = latestBlock > 10_000n ? latestBlock - 10_000n : 0n;
+
+  // Wrap each getLogs in Promise.race with 3s timeout (4 calls × 3s = 12s max, but parallelized)
+  const withTimeout = (promise: Promise<any>, label: string) =>
+    Promise.race([
+      promise.catch(() => []),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`${label} timeout`)), 3000)
+      ),
+    ]).catch(() => []);
 
   const [settledLogs, deployedLogs, gameStartedLogs, burnLogs] = await Promise.all([
-    client.getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock, toBlock: latestBlock }).catch(() => []),
-    client.getLogs({ address: GRID_MINING, event: DEPLOYED_EVENT, fromBlock, toBlock: latestBlock }).catch(() => []),
-    client.getLogs({ address: GRID_MINING, event: GAME_STARTED_EVENT, fromBlock, toBlock: latestBlock }).catch(() => []),
-    client.getLogs({ address: BEAN_TOKEN, event: BEAN_TRANSFER_EVENT, fromBlock, toBlock: latestBlock, args: { to: "0x0000000000000000000000000000000000000000" } }).catch(() => []),
+    withTimeout(client.getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock, toBlock: latestBlock }), "RoundSettled"),
+    withTimeout(client.getLogs({ address: GRID_MINING, event: DEPLOYED_EVENT, fromBlock, toBlock: latestBlock }), "Deployed"),
+    withTimeout(client.getLogs({ address: GRID_MINING, event: GAME_STARTED_EVENT, fromBlock, toBlock: latestBlock }), "GameStarted"),
+    withTimeout(client.getLogs({ address: BEAN_TOKEN, event: BEAN_TRANSFER_EVENT, fromBlock, toBlock: latestBlock, args: { to: "0x0000000000000000000000000000000000000000" } }), "BeanBurn"),
   ]);
 
   // Build timestamp map from GameStarted events
