@@ -27,6 +27,16 @@ export interface RoundData {
   settled: boolean;
 }
 
+export interface WinnerData {
+  address: string;
+  wins: number;
+  rounds: number;
+  totalETH: string;
+  winRate: number;
+  lastSeen: number;
+  avgETH: string;
+}
+
 export interface DashboardData {
   currentRound: number;
   totalRounds: number;
@@ -35,6 +45,16 @@ export interface DashboardData {
   totalETHDeployed: string;
   beanSupply: string;
   topDeployers: { address: string; totalETH: string; rounds: number }[];
+  // new fields
+  roundHistory: RoundData[];
+  topWinners: WinnerData[];
+  totalETHRewarded: string;
+  avgYieldPerRound: string;
+  bestRound: { roundId: number; totalWinnings: string } | null;
+  totalBeanpotDistributed: string;
+  burnedSupply: string;
+  currentRoundEndTime: number;
+  currentRoundTotalDeployed: string;
 }
 
 export interface FreeStatsData {
@@ -114,6 +134,29 @@ const DEPLOYED_EVENT = {
   ],
 } as const;
 
+const GAME_STARTED_EVENT = {
+  type: "event" as const,
+  name: "GameStarted",
+  inputs: [
+    { name: "roundId", type: "uint64", indexed: true as const },
+    { name: "startTime", type: "uint256", indexed: false as const },
+    { name: "endTime", type: "uint256", indexed: false as const },
+  ],
+} as const;
+
+const BEAN_TRANSFER_EVENT = {
+  type: "event" as const,
+  name: "Transfer",
+  inputs: [
+    { name: "from", type: "address", indexed: true as const },
+    { name: "to", type: "address", indexed: true as const },
+    { name: "value", type: "uint256", indexed: false as const },
+  ],
+} as const;
+
+// Use large lookback to capture all contract history (~5M blocks on Base ≈ several months)
+const HISTORY_LOOKBACK = 5_000_000n;
+
 async function _fetchDashboardData(): Promise<DashboardData> {
   const [currentRound, beanSupply, latestBlock] = await Promise.all([
     getCurrentRound(),
@@ -121,100 +164,185 @@ async function _fetchDashboardData(): Promise<DashboardData> {
     client.getBlockNumber(),
   ]);
 
-  // Use events instead of per-round RPC calls — much faster
-  const lookback = BigInt(Math.max(0, Number(latestBlock) - 3000));
+  const fromBlock = latestBlock > HISTORY_LOOKBACK ? latestBlock - HISTORY_LOOKBACK : 0n;
 
-  const [settledLogs, deployedLogs] = await Promise.all([
-    client.getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock: lookback }).catch(() => []),
-    client.getLogs({ address: GRID_MINING, event: DEPLOYED_EVENT, fromBlock: lookback }).catch(() => []),
+  // Fetch all event types in parallel
+  const [settledLogs, deployedLogs, gameStartedLogs, burnLogs, currentRoundData] = await Promise.all([
+    client.getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock }).catch(() => []),
+    client.getLogs({ address: GRID_MINING, event: DEPLOYED_EVENT, fromBlock }).catch(() => []),
+    client.getLogs({ address: GRID_MINING, event: GAME_STARTED_EVENT, fromBlock }).catch(() => []),
+    client.getLogs({
+      address: BEAN_TOKEN,
+      event: BEAN_TRANSFER_EVENT,
+      fromBlock,
+      args: { to: "0x0000000000000000000000000000000000000000" },
+    }).catch(() => []),
+    getRoundData(currentRound).catch(() => null),
   ]);
 
-  // Build round history from RoundSettled events (newest first)
-  const blockWinCounts = new Array(25).fill(0);
-  let totalETH = 0;
-  const deployerMap = new Map<string, { totalETH: number; rounds: number }>();
-
-  const recentRounds: RoundData[] = [];
-  for (const log of [...settledLogs].reverse()) {
-    const block = log.args.winningBlock ?? 0;
-    blockWinCounts[block]++;
-    const winnings = formatEther(log.args.totalWinnings ?? 0n);
-    totalETH += parseFloat(winnings);
-    const miner = log.args.topMiner ?? "0x0000000000000000000000000000000000000000";
-    if (miner !== "0x0000000000000000000000000000000000000000") {
-      const ex = deployerMap.get(miner) ?? { totalETH: 0, rounds: 0 };
-      ex.rounds++;
-      deployerMap.set(miner, ex);
-    }
-    if (recentRounds.length < 20) {
-      recentRounds.push({
-        roundId: Number(log.args.roundId ?? 0),
-        startTime: 0,
-        endTime: 0,
-        winningBlock: block,
-        totalDeployed: winnings,
-        totalWinnings: winnings,
-        topMiner: miner,
-        topMinerReward: formatEther(log.args.topMinerReward ?? 0n),
-        beanpotAmount: formatEther(log.args.beanpotAmount ?? 0n),
-        settled: true,
-      });
-    }
+  // Build timestamp map from GameStarted events
+  const roundTimestamps = new Map<number, { startTime: number; endTime: number }>();
+  for (const log of gameStartedLogs) {
+    const roundId = Number(log.args.roundId ?? 0);
+    roundTimestamps.set(roundId, {
+      startTime: Number(log.args.startTime ?? 0n),
+      endTime: Number(log.args.endTime ?? 0n),
+    });
   }
 
-  // Whale tracking from Deployed events
+  // Build data from RoundSettled events
+  const blockWinCounts = new Array(25).fill(0);
+  let totalETHDeployedNum = 0;
+  let totalETHRewardedNum = 0;
+  let totalBeanpotNum = 0;
+  let bestRound: { roundId: number; totalWinnings: string } | null = null;
+  let bestRoundVal = 0;
+
+  // Winner tracking: address → { wins, lastSeen }
+  const winnerMap = new Map<string, { wins: number; lastSeen: number }>();
+  const roundHistory: RoundData[] = [];
+
+  const sortedSettled = [...settledLogs].sort((a, b) =>
+    Number(a.args.roundId ?? 0) - Number(b.args.roundId ?? 0)
+  );
+
+  for (const log of sortedSettled) {
+    const block = Number(log.args.winningBlock ?? 0);
+    if (block >= 0 && block < 25) blockWinCounts[block]++;
+
+    const winnings = parseFloat(formatEther(log.args.totalWinnings ?? 0n));
+    const reward = parseFloat(formatEther(log.args.topMinerReward ?? 0n));
+    const beanpot = parseFloat(formatEther(log.args.beanpotAmount ?? 0n));
+    const roundId = Number(log.args.roundId ?? 0);
+    const miner = log.args.topMiner ?? "0x0000000000000000000000000000000000000000";
+    const ts = roundTimestamps.get(roundId);
+
+    totalETHDeployedNum += winnings;
+    totalETHRewardedNum += reward;
+    totalBeanpotNum += beanpot;
+
+    if (winnings > bestRoundVal) {
+      bestRoundVal = winnings;
+      bestRound = { roundId, totalWinnings: winnings.toFixed(6) };
+    }
+
+    const validMiner = miner !== "0x0000000000000000000000000000000000000000";
+    if (validMiner) {
+      const ex = winnerMap.get(miner) ?? { wins: 0, lastSeen: 0 };
+      ex.wins++;
+      ex.lastSeen = Math.max(ex.lastSeen, ts?.endTime ?? 0);
+      winnerMap.set(miner, ex);
+    }
+
+    roundHistory.push({
+      roundId,
+      startTime: ts?.startTime ?? 0,
+      endTime: ts?.endTime ?? 0,
+      winningBlock: block,
+      totalDeployed: formatEther(log.args.totalWinnings ?? 0n),
+      totalWinnings: formatEther(log.args.totalWinnings ?? 0n),
+      topMiner: miner,
+      topMinerReward: formatEther(log.args.topMinerReward ?? 0n),
+      beanpotAmount: formatEther(log.args.beanpotAmount ?? 0n),
+      settled: true,
+    });
+  }
+
+  // Deployer tracking from Deployed events
+  const deployerMap = new Map<string, { totalETH: number; rounds: Set<number> }>();
   for (const log of deployedLogs) {
     const user = log.args.user as string;
     const amount = parseFloat(formatEther(log.args.totalAmount ?? 0n));
-    const ex = deployerMap.get(user) ?? { totalETH: 0, rounds: 0 };
+    const roundId = Number(log.args.roundId ?? 0);
+    const ex = deployerMap.get(user) ?? { totalETH: 0, rounds: new Set<number>() };
     ex.totalETH += amount;
-    ex.rounds++;
+    ex.rounds.add(roundId);
     deployerMap.set(user, ex);
   }
+
+  // Build topWinners with win rate
+  const topWinners: WinnerData[] = Array.from(winnerMap.entries())
+    .map(([address, wData]) => {
+      const dData = deployerMap.get(address);
+      const participatedRounds = dData ? dData.rounds.size : wData.wins;
+      const totalETH = dData ? dData.totalETH : 0;
+      return {
+        address,
+        wins: wData.wins,
+        rounds: participatedRounds,
+        totalETH: totalETH.toFixed(4),
+        winRate: participatedRounds > 0 ? wData.wins / participatedRounds : 0,
+        lastSeen: wData.lastSeen,
+        avgETH: participatedRounds > 0 ? (totalETH / participatedRounds).toFixed(4) : "0",
+      };
+    })
+    .sort((a, b) => b.wins - a.wins)
+    .slice(0, 20);
 
   const topDeployers = Array.from(deployerMap.entries())
     .map(([address, data]) => ({
       address,
       totalETH: data.totalETH.toFixed(4),
-      rounds: data.rounds,
+      rounds: data.rounds.size,
     }))
     .sort((a, b) => parseFloat(b.totalETH) - parseFloat(a.totalETH))
     .slice(0, 20);
+
+  // Burn supply from Transfer to address(0)
+  let burnedSupplyNum = 0;
+  for (const log of burnLogs) {
+    burnedSupplyNum += parseFloat(formatEther(log.args.value ?? 0n));
+  }
+
+  const settledCount = roundHistory.length;
+  const avgYield = settledCount > 0 ? totalETHDeployedNum / settledCount : 0;
+
+  const recentRounds = [...roundHistory].reverse().slice(0, 20);
 
   return {
     currentRound,
     totalRounds: currentRound,
     recentRounds,
     blockWinCounts,
-    totalETHDeployed: totalETH.toFixed(4),
+    totalETHDeployed: totalETHDeployedNum.toFixed(4),
     beanSupply,
     topDeployers,
+    roundHistory,
+    topWinners,
+    totalETHRewarded: totalETHRewardedNum.toFixed(4),
+    avgYieldPerRound: avgYield.toFixed(4),
+    bestRound,
+    totalBeanpotDistributed: totalBeanpotNum.toFixed(4),
+    burnedSupply: burnedSupplyNum.toFixed(4),
+    currentRoundEndTime: currentRoundData?.endTime ?? 0,
+    currentRoundTotalDeployed: currentRoundData?.totalDeployed ?? "0",
   };
 }
 
 async function _fetchFreeStats(): Promise<FreeStatsData> {
-  const [currentRound, beanSupply, currentRoundData, latestBlock] = await Promise.all([
+  const [currentRound, beanSupply, latestBlock] = await Promise.all([
     getCurrentRound(),
     getBeanSupply(),
-    getCurrentRound().then((r) => getRoundData(r)),
     client.getBlockNumber(),
   ]);
 
-  const now = Math.floor(Date.now() / 1000);
-  const roundStatus = now < currentRoundData.endTime ? "live" : "ended";
-  const timeRemaining = Math.max(0, currentRoundData.endTime - now);
+  const currentRoundData = await getRoundData(currentRound).catch(() => null);
 
-  // Use events for heatmap and recent rounds
-  const lookback = BigInt(Math.max(0, Number(latestBlock) - 3000));
+  const now = Math.floor(Date.now() / 1000);
+  const roundStatus = currentRoundData && now < currentRoundData.endTime ? "live" : "ended";
+  const timeRemaining = currentRoundData ? Math.max(0, currentRoundData.endTime - now) : 0;
+
+  const fromBlock = latestBlock > HISTORY_LOOKBACK ? latestBlock - HISTORY_LOOKBACK : 0n;
   const settledLogs = await client
-    .getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock: lookback })
+    .getLogs({ address: GRID_MINING, event: ROUND_SETTLED_EVENT, fromBlock })
     .catch(() => []);
 
   const blockWinCounts = new Array(25).fill(0);
   const recentRounds: FreeStatsData["recentRounds"] = [];
 
   for (const log of [...settledLogs].reverse()) {
-    blockWinCounts[log.args.winningBlock ?? 0]++;
+    const block = Number(log.args.winningBlock ?? 0);
+    if (block >= 0 && block < 25) blockWinCounts[block]++;
     if (recentRounds.length < 3) {
       recentRounds.push({
         roundId: Number(log.args.roundId ?? 0),

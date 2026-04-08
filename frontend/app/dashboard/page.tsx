@@ -7,7 +7,9 @@ import type { DashboardData } from "@/lib/minebean";
 import { HeatmapGrid } from "@/components/heatmap-grid";
 import { RoundHistory } from "@/components/round-history";
 import { WhaleTable } from "@/components/whale-table";
-import { TokenomicsSection } from "@/components/tokenomics-section";
+import { MiningCharts } from "@/components/mining-charts";
+import { LiveRoundPanel } from "@/components/live-round-panel";
+import { TokenomicsCharts } from "@/components/tokenomics-charts";
 import { isSuperAdmin } from "@/lib/whitelist";
 
 type Tab = "mining" | "tokenomics";
@@ -22,7 +24,6 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!address) return;
     setLoading(true);
-    // Step 1: check access
     fetch(`/api/dashboard?wallet=${address}`)
       .then((r) => r.json())
       .then(async (d) => {
@@ -34,7 +35,6 @@ export default function DashboardPage() {
           setError(d.error);
           return;
         }
-        // Step 2: fetch analytics from ISR-cached endpoint
         const res = await fetch("/api/analytics");
         const analytics = await res.json();
         if (analytics.error) {
@@ -70,9 +70,7 @@ export default function DashboardPage() {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
         <h1 className="text-2xl font-bold">Access Required</h1>
-        <p className="text-zinc-400">
-          Buy a pass to unlock full analytics.
-        </p>
+        <p className="text-zinc-400">Buy a pass to unlock full analytics.</p>
         <a
           href="/"
           className="rounded-lg bg-emerald-600 px-6 py-3 text-sm font-semibold text-white hover:bg-emerald-500"
@@ -124,31 +122,54 @@ export default function DashboardPage() {
 
       {tab === "mining" && (
         <div className="space-y-6">
+          {/* Stat bar */}
           <div className="grid gap-4 sm:grid-cols-3">
             <StatCard label="Current Round" value={data.currentRound.toLocaleString()} />
             <StatCard label="Total ETH Deployed" value={`${data.totalETHDeployed} ETH`} />
-            <StatCard label="BEAN Supply" value={`${parseFloat(data.beanSupply).toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
+            <StatCard
+              label="BEAN Supply"
+              value={parseFloat(data.beanSupply).toLocaleString(undefined, {
+                maximumFractionDigits: 0,
+              })}
+            />
           </div>
+
+          {/* Live round panel */}
+          <LiveRoundPanel data={data} />
+
+          {/* Heatmap + Whale table */}
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
-              <h2 className="mb-4 text-lg font-semibold">Hot Block Heatmap</h2>
+              <h2 className="mb-1 text-base font-semibold">Hot Block Heatmap</h2>
+              <p className="mb-4 text-xs text-zinc-500">
+                Win counts by block position across all rounds
+              </p>
               <HeatmapGrid data={data.blockWinCounts} />
             </div>
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
-              <h2 className="mb-4 text-lg font-semibold">Whale Tracker</h2>
-              <WhaleTable deployers={data.topDeployers} />
+              <h2 className="mb-1 text-base font-semibold">Whale Intelligence</h2>
+              <p className="mb-4 text-xs text-zinc-500">Top wallets by ETH, win rate, or recency</p>
+              <WhaleTable winners={data.topWinners} deployers={data.topDeployers} />
             </div>
           </div>
+
+          {/* Over-time charts */}
+          <MiningCharts data={data} />
+
+          {/* Recent rounds table */}
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
-            <h2 className="mb-4 text-lg font-semibold">Recent Rounds</h2>
+            <h2 className="mb-4 text-base font-semibold">
+              Recent Rounds
+              <span className="ml-2 text-xs font-normal text-zinc-500">
+                ({data.recentRounds.length} shown)
+              </span>
+            </h2>
             <RoundHistory rounds={data.recentRounds} />
           </div>
         </div>
       )}
 
-      {tab === "tokenomics" && (
-        <TokenomicsSection data={data} />
-      )}
+      {tab === "tokenomics" && <TokenomicsCharts data={data} />}
     </div>
   );
 }

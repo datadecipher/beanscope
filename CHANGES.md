@@ -1,5 +1,10 @@
 # Change Log
 
+### 2026-04-09 (Advanced Analytics Overhaul)
+- **What**: Full dashboard analytics upgrade — fix heatmap zeros bug, add 4 mining charts, whale intelligence with win rate/sort, live round panel, full tokenomics overhaul (emission curve, yield stats, supply breakdown, burn tracking)
+- **Why**: Heatmap showed all zeros because getLogs lookback was only 3000 blocks (~100 min), missing 24h+ rounds. Analytics were too basic to justify paywall.
+- **Files**: `frontend/lib/minebean.ts`, `frontend/app/dashboard/page.tsx`, `frontend/components/mining-charts.tsx` (new), `frontend/components/live-round-panel.tsx` (new), `frontend/components/tokenomics-charts.tsx` (new), `frontend/components/whale-table.tsx` (upgraded)
+
 ### 2026-04-08 (Deploy fix)
 - **What**: Deploy BeanScopeAccess contract to Base mainnet, update env var, redeploy
 - **Why**: Previous contract address 0x7e58620... had no bytecode — contract was never deployed. Paywall was not enforcing (everyone got free access). New contract: 0x12fc49c7f69bc434caddcaa599cffc06a7d3a701
