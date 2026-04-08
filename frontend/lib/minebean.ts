@@ -169,11 +169,12 @@ async function _fetchDashboardData(): Promise<DashboardData> {
 
   // Fetch historical events from Alchemy RPC
   // Alchemy free tier: max 10-block range per getLogs call
-  // Fetch last 2000 blocks (~4 hours on Base) using parallel batches of 20 chunks
-  // 200 total chunks / 20 parallel = 10 batches × ~50ms = ~500ms per event type
+  // Strategy: 5 parallel requests per batch (avoids rate limits), sequential batches
+  // 500 blocks / 10 per chunk = 50 chunks / 5 parallel = 10 batches × ~60ms ≈ 600ms per event type
+  // 4 event types run in parallel → total ~600ms
   const CHUNK_SIZE = 10n;
-  const PARALLEL_BATCH = 20;
-  const lookbackBlocks = 2000n;
+  const PARALLEL_BATCH = 5;
+  const lookbackBlocks = 500n;
   const fromBlock = latestBlock > lookbackBlocks ? latestBlock - lookbackBlocks : 0n;
 
   async function fetchLogsInChunks(
@@ -184,13 +185,12 @@ async function _fetchDashboardData(): Promise<DashboardData> {
     args?: any
   ): Promise<any[]> {
     const allLogs: any[] = [];
-    // Build all chunk ranges
     const chunks: [bigint, bigint][] = [];
     for (let i = from; i < to; i += CHUNK_SIZE) {
       const chunkEnd = i + CHUNK_SIZE - 1n > to ? to : i + CHUNK_SIZE - 1n;
       chunks.push([i, chunkEnd]);
     }
-    // Fetch in parallel batches to stay under rate limits
+    // Fetch in small parallel batches to stay under Alchemy rate limits
     for (let i = 0; i < chunks.length; i += PARALLEL_BATCH) {
       const batch = chunks.slice(i, i + PARALLEL_BATCH);
       const results = await Promise.all(

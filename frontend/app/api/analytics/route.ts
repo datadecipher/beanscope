@@ -8,7 +8,7 @@ export async function GET() {
   try {
     // Wrap in timeout to prevent hangs from blocking responses
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("RPC timeout")), 8000)
+      setTimeout(() => reject(new Error("RPC timeout")), 15000)
     );
     const data = await Promise.race([fetchDashboardData(), timeoutPromise]);
     return Response.json(data);
