@@ -159,19 +159,29 @@ const CHUNK_SIZE = 9_500n;
 // How many blocks back to scan (Base ~2s/block; 500k blocks ≈ ~11 days)
 const HISTORY_LOOKBACK = 500_000n;
 
+const PARALLEL_BATCH = 4; // parallel getLogs calls per event type
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getLogsChunked(params: any, from: bigint, to: bigint): Promise<any[]> {
-  const results: unknown[] = [];
+  // Build all chunk ranges first
+  const chunks: { from: bigint; to: bigint }[] = [];
   let cur = from;
   while (cur <= to) {
     const end = cur + CHUNK_SIZE > to ? to : cur + CHUNK_SIZE;
-    try {
-      const chunk = await client.getLogs({ ...params, fromBlock: cur, toBlock: end });
-      results.push(...chunk);
-    } catch {
-      // skip failed chunk
-    }
+    chunks.push({ from: cur, to: end });
     cur = end + 1n;
+  }
+
+  // Fetch in parallel batches to stay within build time
+  const results: unknown[] = [];
+  for (let i = 0; i < chunks.length; i += PARALLEL_BATCH) {
+    const batch = chunks.slice(i, i + PARALLEL_BATCH);
+    const batchResults = await Promise.all(
+      batch.map((c) =>
+        client.getLogs({ ...params, fromBlock: c.from, toBlock: c.to }).catch(() => [])
+      )
+    );
+    results.push(...batchResults.flat());
   }
   return results;
 }
@@ -346,7 +356,9 @@ async function _fetchFreeStats(): Promise<FreeStatsData> {
   const roundStatus = currentRoundData && now < currentRoundData.endTime ? "live" : "ended";
   const timeRemaining = currentRoundData ? Math.max(0, currentRoundData.endTime - now) : 0;
 
-  const fromBlock = latestBlock > HISTORY_LOOKBACK ? latestBlock - HISTORY_LOOKBACK : 0n;
+  // Free stats only needs recent data — use smaller lookback (50k blocks ≈ ~28hrs)
+  const FREE_STATS_LOOKBACK = 50_000n;
+  const fromBlock = latestBlock > FREE_STATS_LOOKBACK ? latestBlock - FREE_STATS_LOOKBACK : 0n;
   const settledLogs = await getLogsChunked(
     { address: GRID_MINING, event: ROUND_SETTLED_EVENT },
     fromBlock,
