@@ -170,9 +170,10 @@ async function _fetchDashboardData(): Promise<DashboardData> {
 
   // Fetch historical events from Alchemy RPC
   // Alchemy free tier: max 10-block range per getLogs call
-  // Strategy: fetch last 1000 blocks in 100 parallel 10-block chunks
+  // Strategy: fetch last 100 blocks in 10 sequential 10-block chunks
+  // This keeps total requests low and under Vercel 10s timeout
   const CHUNK_SIZE = 10n;
-  const lookbackBlocks = 1000n;
+  const lookbackBlocks = 100n;
   const fromBlock = latestBlock > lookbackBlocks ? latestBlock - lookbackBlocks : 0n;
 
   async function fetchLogsInChunks(
@@ -182,27 +183,34 @@ async function _fetchDashboardData(): Promise<DashboardData> {
     toBlock: bigint,
     args?: any
   ): Promise<any[]> {
-    const chunks: Promise<any[]>[] = [];
+    const allLogs: any[] = [];
     for (let i = fromBlock; i < toBlock; i += CHUNK_SIZE) {
       const chunkStart = i;
       const chunkEnd = i + CHUNK_SIZE - 1n > toBlock ? toBlock : i + CHUNK_SIZE - 1n;
-      chunks.push(
-        client.getLogs({ address, event: eventDef, fromBlock: chunkStart, toBlock: chunkEnd, args }).catch(() => [] as any[])
-      );
-      // Small delay between requests to avoid rate limits
-      await new Promise(r => setTimeout(r, 50));
+      try {
+        const chunkLogs = await client.getLogs({ address, event: eventDef, fromBlock: chunkStart, toBlock: chunkEnd, args });
+        allLogs.push(...chunkLogs);
+      } catch {
+        // Silently skip on error
+      }
     }
-    const results = await Promise.all(chunks);
-    return results.flat() as any[];
+    return allLogs;
   }
 
-  // Fetch all event types in parallel
+  // Fetch all event types in parallel with timeouts
+  const withTimeout = (promise: Promise<any>, timeoutMs: number = 2000): Promise<any> => {
+    return Promise.race([
+      promise,
+      new Promise((_r, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs)),
+    ]).catch(() => []);
+  };
+
   const [settledLogs, deployedLogs, gameStartedLogs, burnLogs] = await Promise.all([
-    fetchLogsInChunks(GRID_MINING, ROUND_SETTLED_EVENT, fromBlock, latestBlock).catch(() => []),
-    fetchLogsInChunks(GRID_MINING, DEPLOYED_EVENT, fromBlock, latestBlock).catch(() => []),
-    fetchLogsInChunks(GRID_MINING, GAME_STARTED_EVENT, fromBlock, latestBlock).catch(() => []),
-    fetchLogsInChunks(BEAN_TOKEN, BEAN_TRANSFER_EVENT, fromBlock, latestBlock, { to: "0x0000000000000000000000000000000000000000" }).catch(() => []),
-  ]);
+    withTimeout(fetchLogsInChunks(GRID_MINING, ROUND_SETTLED_EVENT, fromBlock, latestBlock), 2000),
+    withTimeout(fetchLogsInChunks(GRID_MINING, DEPLOYED_EVENT, fromBlock, latestBlock), 2000),
+    withTimeout(fetchLogsInChunks(GRID_MINING, GAME_STARTED_EVENT, fromBlock, latestBlock), 2000),
+    withTimeout(fetchLogsInChunks(BEAN_TOKEN, BEAN_TRANSFER_EVENT, fromBlock, latestBlock, { to: "0x0000000000000000000000000000000000000000" }), 2000),
+  ]) as any[];
 
   // Build timestamp map from GameStarted events
   const roundTimestamps = new Map<number, { startTime: number; endTime: number }>();
