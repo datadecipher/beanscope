@@ -158,11 +158,20 @@ const CHUNK_SIZE = 3_000n;
 const HISTORY_LOOKBACK = 30_000n;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getLogsWithTimeout(params: any): Promise<any[]> {
-  return Promise.race([
-    client.getLogs(params).catch(() => []),
-    new Promise<[]>((resolve) => setTimeout(() => resolve([]), CALL_TIMEOUT_MS)),
-  ]);
+async function getLogsWithTimeout(params: any): Promise<any[]> {
+  let timeoutId: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<null>((resolve) => {
+    timeoutId = setTimeout(() => resolve(null), CALL_TIMEOUT_MS);
+  });
+
+  try {
+    const result = await Promise.race([client.getLogs(params), timeoutPromise]);
+    if (timeoutId) clearTimeout(timeoutId);
+    return result ?? [];
+  } catch (e) {
+    if (timeoutId) clearTimeout(timeoutId);
+    return [];
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
