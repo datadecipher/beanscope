@@ -1,0 +1,9 @@
+node_modules
+.next
+.env*
+*.local
+.vercel
+build/
+SESSION_HANDOFF.md
+NEXT_SESSION_DEPLOY.md
+build/
