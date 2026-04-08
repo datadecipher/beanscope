@@ -170,10 +170,10 @@ async function _fetchDashboardData(): Promise<DashboardData> {
 
   // Fetch historical events from Alchemy RPC
   // Alchemy free tier: max 10-block range per getLogs call
-  // Strategy: fetch last 100 blocks in 10 sequential 10-block chunks
-  // This keeps total requests low and under Vercel 10s timeout
+  // Fetch last 1000 blocks (~2 hours on Base) in 100 sequential 10-block chunks
+  // With minimal overhead this should take ~1-2 seconds
   const CHUNK_SIZE = 10n;
-  const lookbackBlocks = 100n;
+  const lookbackBlocks = 1000n;
   const fromBlock = latestBlock > lookbackBlocks ? latestBlock - lookbackBlocks : 0n;
 
   async function fetchLogsInChunks(
@@ -184,15 +184,20 @@ async function _fetchDashboardData(): Promise<DashboardData> {
     args?: any
   ): Promise<any[]> {
     const allLogs: any[] = [];
-    for (let i = fromBlock; i < toBlock; i += CHUNK_SIZE) {
-      const chunkStart = i;
-      const chunkEnd = i + CHUNK_SIZE - 1n > toBlock ? toBlock : i + CHUNK_SIZE - 1n;
-      try {
-        const chunkLogs = await client.getLogs({ address, event: eventDef, fromBlock: chunkStart, toBlock: chunkEnd, args });
-        allLogs.push(...chunkLogs);
-      } catch {
-        // Silently skip on error
+    // Batch into 5 parallel groups to speed up while respecting rate limits
+    const batchSize = 20;
+    for (let startIdx = 0; startIdx < (Number(toBlock) - Number(fromBlock)) / 10; startIdx += batchSize) {
+      const batchPromises = [];
+      for (let i = 0; i < batchSize && Number(fromBlock) + (startIdx + i) * 10 < Number(toBlock); i++) {
+        const blockNum = Number(fromBlock) + (startIdx + i) * 10;
+        const chunkStart = BigInt(blockNum);
+        const chunkEnd = BigInt(Math.min(blockNum + 10, Number(toBlock)));
+        batchPromises.push(
+          client.getLogs({ address, event: eventDef, fromBlock: chunkStart, toBlock: chunkEnd, args }).catch(() => [] as any[])
+        );
       }
+      const batchResults = await Promise.all(batchPromises);
+      allLogs.push(...batchResults.flat());
     }
     return allLogs;
   }
