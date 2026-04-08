@@ -1,3 +1,5 @@
+export const maxDuration = 30;
+
 import { NextRequest } from "next/server";
 import { createPublicClient, http } from "viem";
 import { base } from "viem/chains";
