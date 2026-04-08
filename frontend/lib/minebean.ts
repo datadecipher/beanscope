@@ -154,17 +154,22 @@ const BEAN_TRANSFER_EVENT = {
   ],
 } as const;
 
-// publicnode supports ~3000 block getLogs ranges (proven by original working code)
-// Keep chunk=3000, lookback=30k (10 chunks, 2 batches of 5), all 4 event types in parallel
-// Total: ~2-3s for getLogs + 2s overhead = ~5s, fits Vercel Hobby 10s limit
+// getLogs with a hard per-call timeout (publicnode hangs when there are results)
+const CALL_TIMEOUT_MS = 4_000; // 4s per getLogs call max
 const CHUNK_SIZE = 3_000n;
-const HISTORY_LOOKBACK = 30_000n;
+const HISTORY_LOOKBACK = 30_000n; // 10 chunks, 2 batches of 5
+const PARALLEL_BATCH = 5;
 
-const PARALLEL_BATCH = 5; // parallel getLogs calls per event type
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getLogsWithTimeout(params: any): Promise<any[]> {
+  return Promise.race([
+    client.getLogs(params).catch(() => []),
+    new Promise<[]>((resolve) => setTimeout(() => resolve([]), CALL_TIMEOUT_MS)),
+  ]);
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getLogsChunked(params: any, from: bigint, to: bigint): Promise<any[]> {
-  // Build all chunk ranges first
   const chunks: { from: bigint; to: bigint }[] = [];
   let cur = from;
   while (cur <= to) {
@@ -173,14 +178,11 @@ async function getLogsChunked(params: any, from: bigint, to: bigint): Promise<an
     cur = end + 1n;
   }
 
-  // Fetch in parallel batches to stay within build time
   const results: unknown[] = [];
   for (let i = 0; i < chunks.length; i += PARALLEL_BATCH) {
     const batch = chunks.slice(i, i + PARALLEL_BATCH);
     const batchResults = await Promise.all(
-      batch.map((c) =>
-        client.getLogs({ ...params, fromBlock: c.from, toBlock: c.to }).catch(() => [])
-      )
+      batch.map((c) => getLogsWithTimeout({ ...params, fromBlock: c.from, toBlock: c.to }))
     );
     results.push(...batchResults.flat());
   }
